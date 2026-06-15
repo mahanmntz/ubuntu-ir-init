@@ -33,7 +33,7 @@ Depending on your server's initial network conditions, choose one of the methods
 
 1. Clone the repository:
    ```bash
-   git clone [https://github.com/mahanmntz/ubuntu-ir-init.git](https://github.com/mahanmntz/ubuntu-ir-init.git)
+   git clone https://github.com/mahanmntz/ubuntu-ir-init.git
    cd ubuntu-ir-init
 
 ```
