@@ -21,4 +21,4 @@ Dealing with network restrictions and slow download speeds can be a hassle when 
 1. **Clone the repository:**
 ```bash
    git clone (https://github.com/mahanmntz/ubuntu-ir-init.git)
-   cd ir-server-bootstrap
+   cd ubuntu-ir-init
