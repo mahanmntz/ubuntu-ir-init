@@ -1,71 +1,248 @@
-```
-# Ubuntu IR Init 🚀
+#!/bin/bash
 
-A comprehensive, modular Bash script designed for automated server provisioning in restricted network environments. Built specifically for developers dealing with "Iran-Access" networks, heavy filtering, and international sanctions (403 errors). 
+# =========================================================
+# Ensure script is run as root
+# =========================================================
+if [ "$EUID" -ne 0 ]; then
+  echo "❌ Error: Please run this script as root."
+  exit 1
+fi
 
-This tool ensures that dependencies, databases, and developer environments are pulled from functional internal mirrors or correctly routed through bypass proxies without needing manual interventions.
+CREDENTIALS_FILE="/root/db_credentials.txt"
 
-## ✨ Core Features
+# =========================================================
+# Error Handling Helper
+# =========================================================
+check_status() {
+    if [ $? -ne 0 ]; then
+        echo "❌ ERROR: The last command failed to execute."
+        echo "💡 HINT: Since you are operating from Iran, this is likely due to:"
+        echo "   - Sanctions (403 Forbidden)"
+        echo "   - Network filtering / Iran-Access only restrictions"
+        echo "   - DNS poisoning"
+        echo "👉 Try running the task with Proxychains, or ensure your local mirrors are working."
+        echo "---------------------------------------------------"
+        read -p "Press Enter to continue..."
+    else
+        echo "✅ Success!"
+    fi
+}
 
-### 1. 🛡️ Network & Bypass Capabilities
-* **Local APT Mirrors:** Instantly swap default Ubuntu repos for high-speed local mirrors (IranServer, ArvanCloud).
-* **Proxychains Integration:** Dynamically configure `proxychains4` via the terminal to tunnel specific commands.
-* **Docker Registry Injection:** Installs Docker and auto-injects unblocked local registry mirrors into `daemon.json` to bypass Docker Hub restrictions.
+# =========================================================
+# 1. INITIAL SETUP MENU
+# =========================================================
+setup_mirrors() {
+    echo -e "\n--- Ubuntu Repository Mirrors (Iran) ---"
+    echo "1) IranServer (repo.iranserver.com)"
+    echo "2) ArvanCloud (mirror.arvancloud.ir)"
+    read -p "Select a mirror [1-2] (Enter to skip): " mirror_choice
 
-### 2. 💻 Developer Tools Auto-Setup
-Instead of fighting 403 errors from official sources, this script safely installs tools using local networks:
-* **Node.js & NPM:** Installs Node and auto-configures the NPM registry to use functional Iranian mirrors (`registry.npmjs.ir`).
-* **React CLI:** Sets up `create-react-app` globally.
-* **Go (Golang):** Installs Go and configures `GOPROXY` to bypass module download restrictions.
+    local mirror_url=""
+    case $mirror_choice in
+        1) mirror_url="repo.iranserver.com/ubuntu" ;;
+        2) mirror_url="mirror.arvancloud.ir/ubuntu" ;;
+        *) echo "Skipping mirror setup."; return ;;
+    esac
 
-### 3. 🗄️ Database Provisioning
-* **MongoDB:** Installs the database, configures the service, and prompts for an admin username/password.
-* **Redis:** Installs Redis server and optionally allows you to secure it with a custom password.
-* **Credential Management:** All generated or inputted passwords are automatically and securely appended to `/root/db_credentials.txt` so you never lose them.
+    echo "Backing up sources.list..."
+    cp /etc/apt/sources.list /etc/apt/sources.list.backup
 
-### 4. 🚨 Smart Error Handling
-Every major installation step includes a status check. If a download fails, the script will halt and provide actionable hints, explaining whether the failure was due to network filtering, sanctions (403), or DNS poisoning.
+    echo "Applying new mirror: $mirror_url"
+    sed -i "s|http://archive.ubuntu.com/ubuntu/|http://$mirror_url/|g" /etc/apt/sources.list
+    sed -i "s|http://security.ubuntu.com/ubuntu/|http://$mirror_url/|g" /etc/apt/sources.list
+    
+    apt update -y
+    check_status
+}
 
-## 📋 Prerequisites
-* **OS:** Ubuntu 20.04 / 22.04 LTS
-* **Access:** Root privileges required
+setup_docker() {
+    echo -e "\n--- Installing Docker ---"
+    apt install -y docker.io docker-compose
+    systemctl enable --now docker
 
-## 🚀 Usage Guide
+    echo "Configuring IranServer Docker Registry Mirror..."
+    mkdir -p /etc/docker
+    cat <<EOF > /etc/docker/daemon.json
+{
+  "registry-mirrors": ["https://docker.iranserver.com", "https://registry.docker.ir"]
+}
+EOF
+    systemctl restart docker
+    check_status
+}
 
-1. **Clone the repository:**
-```bash
-   git clone [https://github.com/mahanmntz/ubuntu-ir-init.git](https://github.com/mahanmntz/ubuntu-ir-init.git)
-   cd ubuntu-ir-init
+setup_proxychains() {
+    echo -e "\n--- Installing Proxychains ---"
+    apt install -y proxychains4
+    read -p "Enter proxy string (e.g., 'socks5 127.0.0.1 1080') or Enter to skip: " proxy_string
 
-```
+    if [ -n "$proxy_string" ]; then
+        sed -i 's/^strict_chain/#strict_chain/g' /etc/proxychains4.conf
+        sed -i 's/^#dynamic_chain/dynamic_chain/g' /etc/proxychains4.conf
+        sed -i '/^socks4 \+127.0.0.1 \+9050/d' /etc/proxychains4.conf
+        echo "$proxy_string" >> /etc/proxychains4.conf
+        echo "Proxychains configured with: $proxy_string"
+    fi
+    check_status
+}
 
-2. **Make the script executable:**
+menu_initial_setup() {
+    while true; do
+        echo -e "\n======================================"
+        echo "         INITIAL SETUP MENU           "
+        echo "======================================"
+        echo "1) Setup Iranian Mirrors"
+        echo "2) Install Docker (with Mirrors)"
+        echo "3) Configure Proxychains"
+        echo "4) Run All Initial Setups"
+        echo "5) Back to Main Menu"
+        read -p "Select option: " opt
+        case $opt in
+            1) setup_mirrors ;;
+            2) setup_docker ;;
+            3) setup_proxychains ;;
+            4) setup_mirrors; setup_docker; setup_proxychains ;;
+            5) break ;;
+            *) echo "Invalid option." ;;
+        esac
+    done
+}
 
-```bash
-   chmod +x setup.sh
+# =========================================================
+# 2. DEVELOPER TOOLS MENU
+# =========================================================
+install_node_react() {
+    echo -e "\n--- Installing Node.js, npm, and React CLI ---"
+    # Using Ubuntu standard repos via local mirror to avoid 403 from NodeSource
+    apt install -y nodejs npm
+    check_status
 
-```
+    echo "Setting up NPM Mirror to bypass restrictions..."
+    npm config set registry https://registry.npmjs.ir/ 2>/dev/null || npm config set registry https://registry.npmjs.org/
+    
+    echo "Installing React CLI (create-react-app) globally..."
+    npm install -g create-react-app
+    check_status
+}
 
-3. **Run the script as root:**
+install_golang() {
+    echo -e "\n--- Installing Go (Golang) ---"
+    apt install -y golang
+    check_status
 
-```bash
-   sudo ./setup.sh
+    echo "Setting GOPROXY to bypass Iran restrictions for Go modules..."
+    go env -w GOPROXY=https://goproxy.io,direct
+    echo "GOPROXY configured successfully."
+}
 
-```
+menu_dev_tools() {
+    while true; do
+        echo -e "\n======================================"
+        echo "         DEVELOPER TOOLS MENU         "
+        echo "======================================"
+        echo "1) Node.js + npm + React CLI"
+        echo "2) Go (Golang)"
+        echo "3) Install All Dev Tools"
+        echo "4) Back to Main Menu"
+        read -p "Select option: " opt
+        case $opt in
+            1) install_node_react ;;
+            2) install_golang ;;
+            3) install_node_react; install_golang ;;
+            4) break ;;
+            *) echo "Invalid option." ;;
+        esac
+    done
+}
 
-4. **Navigate the Menus:**
-The script is fully interactive and modular. You can enter the **Initial Setup** menu, the **Developer Tools** menu, or the **Databases** menu to pick and choose your stack. Alternatively, select **Run EVERYTHING** for a complete zero-to-hero server setup.
+# =========================================================
+# 3. DATABASES MENU
+# =========================================================
+install_mongodb() {
+    echo -e "\n--- Installing MongoDB ---"
+    # Installing standard mongodb from ubuntu repos via local mirror
+    apt install -y mongodb
+    check_status
 
-## 🔒 Security Note
+    systemctl enable --now mongodb
+    
+    echo "--- MongoDB Setup ---"
+    read -p "Enter a new MongoDB Admin Username: " mongo_user
+    read -s -p "Enter Password for $mongo_user: " mongo_pass
+    echo ""
+    
+    # Save credentials to root
+    echo "MongoDB -> Username: $mongo_user | Password: $mongo_pass" >> $CREDENTIALS_FILE
+    echo "✅ Credentials securely saved to $CREDENTIALS_FILE"
+}
 
-If you use the database configuration tools, your passwords will be saved in plain text at `/root/db_credentials.txt`. Because this file is located in the root directory, it is protected from standard users, but you should delete it or move it to a secure password manager once your setup is complete.
+install_redis() {
+    echo -e "\n--- Installing Redis ---"
+    apt install -y redis-server
+    check_status
+    
+    systemctl enable --now redis-server
+    
+    echo "--- Redis Setup ---"
+    read -p "Do you want to set a Redis password? (y/n): " set_pass
+    if [[ "$set_pass" == "y" || "$set_pass" == "Y" ]]; then
+        read -s -p "Enter Redis Password: " redis_pass
+        echo ""
+        sed -i "s/^# requirepass foobared/requirepass $redis_pass/" /etc/redis/redis.conf
+        systemctl restart redis-server
+        
+        # Save credentials to root
+        echo "Redis -> Password: $redis_pass" >> $CREDENTIALS_FILE
+        echo "✅ Credentials securely saved to $CREDENTIALS_FILE"
+    fi
+}
 
-## 🤝 Contributing
+menu_databases() {
+    while true; do
+        echo -e "\n======================================"
+        echo "            DATABASES MENU            "
+        echo "======================================"
+        echo "1) MongoDB"
+        echo "2) Redis"
+        echo "3) Install All Databases"
+        echo "4) Back to Main Menu"
+        read -p "Select option: " opt
+        case $opt in
+            1) install_mongodb ;;
+            2) install_redis ;;
+            3) install_mongodb; install_redis ;;
+            4) break ;;
+            *) echo "Invalid option." ;;
+        esac
+    done
+}
 
-Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://www.google.com/search?q=https://github.com/mahanmntz/ubuntu-ir-init/issues). Found a new working mirror? Want to add another language (like Python) or a database (like PostgreSQL)? Pull requests are highly appreciated.
+# =========================================================
+# MAIN LOOP
+# =========================================================
+while true; do
+    echo -e "\n======================================"
+    echo "    IRAN SERVER BOOTSTRAP - MAIN MENU "
+    echo "======================================"
+    echo "1) Initial Server Setup (Mirrors, Proxy, Docker)"
+    echo "2) Developer Tools (Go, Node, React)"
+    echo "3) Databases (MongoDB, Redis)"
+    echo "4) Run EVERYTHING (Full Provisioning)"
+    echo "5) Exit"
+    echo "======================================"
+    read -p "Select an option [1-5]: " main_choice
 
-## 📝 License
-
-This project is open-source and available under the [MIT License](https://www.google.com/search?q=LICENSE).
-
-```
+    case $main_choice in
+        1) menu_initial_setup ;;
+        2) menu_dev_tools ;;
+        3) menu_databases ;;
+        4) 
+            setup_mirrors; setup_docker; setup_proxychains
+            install_node_react; install_golang
+            install_mongodb; install_redis
+            echo "🎉 ALL TASKS COMPLETED!"
+            ;;
+        5) echo "Exiting..."; exit 0 ;;
+        *) echo "Invalid option!" ;;
+    esac
+done
