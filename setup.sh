@@ -4,7 +4,7 @@
 # Ensure script is run as root
 # =========================================================
 if [ "$EUID" -ne 0 ]; then
-  echo "❌ Error: Please run this script as root."
+  echo "Error: Please run this script as root."
   exit 1
 fi
 
@@ -15,16 +15,16 @@ CREDENTIALS_FILE="/root/db_credentials.txt"
 # =========================================================
 check_status() {
     if [ $? -ne 0 ]; then
-        echo "❌ ERROR: The last command failed to execute."
-        echo "💡 HINT: Since you are operating from Iran, this is likely due to:"
+        echo "ERROR: The last command failed to execute."
+        echo "HINT: Since you are operating from Iran, this is likely due to:"
         echo "   - Sanctions (403 Forbidden)"
         echo "   - Network filtering / Iran-Access only restrictions"
         echo "   - DNS poisoning"
-        echo "👉 Try running the task with Proxychains, or ensure your local mirrors are working."
+        echo "Try running the task with Proxychains, or ensure your local mirrors are working."
         echo "---------------------------------------------------"
         read -p "Press Enter to continue..."
     else
-        echo "✅ Success!"
+        echo "Success!"
     fi
 }
 
@@ -44,13 +44,23 @@ setup_mirrors() {
         *) echo "Skipping mirror setup."; return ;;
     esac
 
-    echo "Backing up sources.list..."
-    cp /etc/apt/sources.list /etc/apt/sources.list.backup
-
     echo "Applying new mirror: $mirror_url"
-    sed -i "s|http://archive.ubuntu.com/ubuntu/|http://$mirror_url/|g" /etc/apt/sources.list
-    sed -i "s|http://security.ubuntu.com/ubuntu/|http://$mirror_url/|g" /etc/apt/sources.list
+
+    # Backup and replace in standard sources.list (Older setups & some cloud providers)
+    if [ -f /etc/apt/sources.list ]; then
+        cp /etc/apt/sources.list /etc/apt/sources.list.backup
+        sed -i -E "s|https?://([a-z0-9-]+\.)?archive\.ubuntu\.com/ubuntu/?|http://$mirror_url/|g" /etc/apt/sources.list
+        sed -i -E "s|https?://security\.ubuntu\.com/ubuntu/?|http://$mirror_url/|g" /etc/apt/sources.list
+    fi
+
+    # Backup and replace in DEB822 format (Ubuntu 24.04+)
+    if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+        cp /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup
+        sed -i -E "s|https?://([a-z0-9-]+\.)?archive\.ubuntu\.com/ubuntu/?|http://$mirror_url/|g" /etc/apt/sources.list.d/ubuntu.sources
+        sed -i -E "s|https?://security\.ubuntu\.com/ubuntu/?|http://$mirror_url/|g" /etc/apt/sources.list.d/ubuntu.sources
+    fi
     
+    echo "Updating package lists..."
     apt update -y
     check_status
 }
@@ -113,7 +123,6 @@ menu_initial_setup() {
 # =========================================================
 install_node_react() {
     echo -e "\n--- Installing Node.js, npm, and React CLI ---"
-    # Using Ubuntu standard repos via local mirror to avoid 403 from NodeSource
     apt install -y nodejs npm
     check_status
 
@@ -160,7 +169,6 @@ menu_dev_tools() {
 # =========================================================
 install_mongodb() {
     echo -e "\n--- Installing MongoDB ---"
-    # Installing standard mongodb from ubuntu repos via local mirror
     apt install -y mongodb
     check_status
 
@@ -171,9 +179,8 @@ install_mongodb() {
     read -s -p "Enter Password for $mongo_user: " mongo_pass
     echo ""
     
-    # Save credentials to root
     echo "MongoDB -> Username: $mongo_user | Password: $mongo_pass" >> $CREDENTIALS_FILE
-    echo "✅ Credentials securely saved to $CREDENTIALS_FILE"
+    echo "Credentials securely saved to $CREDENTIALS_FILE"
 }
 
 install_redis() {
@@ -191,9 +198,8 @@ install_redis() {
         sed -i "s/^# requirepass foobared/requirepass $redis_pass/" /etc/redis/redis.conf
         systemctl restart redis-server
         
-        # Save credentials to root
         echo "Redis -> Password: $redis_pass" >> $CREDENTIALS_FILE
-        echo "✅ Credentials securely saved to $CREDENTIALS_FILE"
+        echo "Credentials securely saved to $CREDENTIALS_FILE"
     fi
 }
 
@@ -240,7 +246,7 @@ while true; do
             setup_mirrors; setup_docker; setup_proxychains
             install_node_react; install_golang
             install_mongodb; install_redis
-            echo "🎉 ALL TASKS COMPLETED!"
+            echo "ALL TASKS COMPLETED!"
             ;;
         5) echo "Exiting..."; exit 0 ;;
         *) echo "Invalid option!" ;;
