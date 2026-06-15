@@ -44,20 +44,21 @@ setup_mirrors() {
         *) echo "Skipping mirror setup."; return ;;
     esac
 
+    echo "Cleaning up old backup files to prevent APT warnings..."
+    rm -f /etc/apt/sources.list.d/*.backup
+    rm -f /etc/apt/sources.list.d/*.save
+
     echo "Applying new mirror: $mirror_url"
 
-    # Backup and replace in standard sources.list (Older setups & some cloud providers)
     if [ -f /etc/apt/sources.list ]; then
-        cp /etc/apt/sources.list /etc/apt/sources.list.backup
-        sed -i -E "s|https?://([a-z0-9-]+\.)?archive\.ubuntu\.com/ubuntu/?|http://$mirror_url/|g" /etc/apt/sources.list
+        cp /etc/apt/sources.list /root/sources.list.backup
+        sed -i -E "s|https?://([a-zA-Z0-9-]+\.)?archive\.ubuntu\.com/ubuntu/?|http://$mirror_url/|g" /etc/apt/sources.list
         sed -i -E "s|https?://security\.ubuntu\.com/ubuntu/?|http://$mirror_url/|g" /etc/apt/sources.list
     fi
 
-    # Backup and replace in DEB822 format (Ubuntu 24.04+)
     if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-        cp /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup
-        sed -i -E "s|https?://([a-z0-9-]+\.)?archive\.ubuntu\.com/ubuntu/?|http://$mirror_url/|g" /etc/apt/sources.list.d/ubuntu.sources
-        sed -i -E "s|https?://security\.ubuntu\.com/ubuntu/?|http://$mirror_url/|g" /etc/apt/sources.list.d/ubuntu.sources
+        cp /etc/apt/sources.list.d/ubuntu.sources /root/ubuntu.sources.backup
+        sed -i -E "s|URIs: .*ubuntu.com/ubuntu/?|URIs: http://$mirror_url/|g" /etc/apt/sources.list.d/ubuntu.sources
     fi
     
     echo "Updating package lists..."
@@ -168,39 +169,61 @@ menu_dev_tools() {
 # 3. DATABASES MENU
 # =========================================================
 install_mongodb() {
-    echo -e "\n--- Installing MongoDB ---"
-    apt install -y mongodb
-    check_status
-
-    systemctl enable --now mongodb
+    echo -e "\n--- Installing MongoDB (via Docker) ---"
+    echo "Deploying MongoDB securely via local Docker registry mirror..."
     
-    echo "--- MongoDB Setup ---"
+    if ! command -v docker &> /dev/null; then
+        echo "Docker is required for MongoDB installation. Installing Docker first..."
+        setup_docker
+    fi
+
     read -p "Enter a new MongoDB Admin Username: " mongo_user
     read -s -p "Enter Password for $mongo_user: " mongo_pass
     echo ""
+    
+    docker run -d \
+      --name mongodb \
+      --restart unless-stopped \
+      -p 27017:27017 \
+      -e MONGO_INITDB_ROOT_USERNAME=$mongo_user \
+      -e MONGO_INITDB_ROOT_PASSWORD=$mongo_pass \
+      mongo:latest
+      
+    check_status
     
     echo "MongoDB -> Username: $mongo_user | Password: $mongo_pass" >> $CREDENTIALS_FILE
     echo "Credentials securely saved to $CREDENTIALS_FILE"
 }
 
 install_redis() {
-    echo -e "\n--- Installing Redis ---"
-    apt install -y redis-server
-    check_status
+    echo -e "\n--- Installing Redis (via Docker) ---"
+    echo "Deploying Redis securely via local Docker registry mirror..."
     
-    systemctl enable --now redis-server
+    if ! command -v docker &> /dev/null; then
+        echo "Docker is required for Redis installation. Installing Docker first..."
+        setup_docker
+    fi
     
-    echo "--- Redis Setup ---"
     read -p "Do you want to set a Redis password? (y/n): " set_pass
     if [[ "$set_pass" == "y" || "$set_pass" == "Y" ]]; then
         read -s -p "Enter Redis Password: " redis_pass
         echo ""
-        sed -i "s/^# requirepass foobared/requirepass $redis_pass/" /etc/redis/redis.conf
-        systemctl restart redis-server
+        docker run -d \
+          --name redis \
+          --restart unless-stopped \
+          -p 6379:6379 \
+          redis:latest redis-server --requirepass "$redis_pass"
         
         echo "Redis -> Password: $redis_pass" >> $CREDENTIALS_FILE
         echo "Credentials securely saved to $CREDENTIALS_FILE"
+    else
+        docker run -d \
+          --name redis \
+          --restart unless-stopped \
+          -p 6379:6379 \
+          redis:latest
     fi
+    check_status
 }
 
 menu_databases() {
