@@ -31,29 +31,69 @@ Every major installation step includes a status check. If a download fails, the 
 
 ## 🚀 Usage Guide
 
+Depending on your server's initial network conditions, choose one of the methods below:
+
+### Method 1: Using Git (If GitHub is accessible)
+
 1. **Clone the repository:**
-```bash
+   ```bash
    git clone [https://github.com/mahanmntz/ubuntu-ir-init.git](https://github.com/mahanmntz/ubuntu-ir-init.git)
    cd ubuntu-ir-init
 
 ```
 
 2. **Make the script executable:**
-
 ```bash
-   chmod +x setup.sh
+chmod +x setup.sh
 
 ```
+
 
 3. **Run the script as root:**
-
 ```bash
-   sudo ./setup.sh
+sudo ./setup.sh
 
 ```
 
-4. **Navigate the Menus:**
-The script is fully interactive and modular. You can enter the **Initial Setup** menu, the **Developer Tools** menu, or the **Databases** menu to pick and choose your stack. Alternatively, select **Run EVERYTHING** for a complete zero-to-hero server setup.
+
+
+### Method 2: Manual Setup (If GitHub is blocked)
+
+If your server cannot access GitHub due to filtering, you can easily create the file manually:
+
+1. **Create a new file using nano:**
+```bash
+nano setup.sh
+
+```
+
+
+2. **Paste the script code:**
+Copy the entire contents of the `setup.sh` file from this repository (on your local machine) and paste it into the terminal.
+3. **Save and exit:**
+* Press `Ctrl + O` to save the file.
+* Press `Enter` to confirm the filename.
+* Press `Ctrl + X` to exit the nano editor.
+
+
+4. **Make the script executable:**
+```bash
+chmod +x setup.sh
+
+```
+
+
+5. **Run the script as root:**
+```bash
+sudo ./setup.sh
+
+```
+
+
+
+## 🎮 Navigating the Menus
+
+Once running, the script is fully interactive and modular. You can enter the **Initial Setup** menu, the **Developer Tools** menu, or the **Databases** menu to pick and choose your stack. Alternatively, select **Run EVERYTHING** for a complete zero-to-hero server setup.
 
 ## 🔒 Security Note
 
@@ -66,5 +106,3 @@ Contributions, issues, and feature requests are welcome! Feel free to check the 
 ## 📝 License
 
 This project is open-source and available under the [MIT License](https://www.google.com/search?q=LICENSE).
-
-```
