@@ -1,4 +1,3 @@
-```
 # Ubuntu IR Init 🚀
 
 A comprehensive, modular Bash script designed for automated server provisioning in restricted network environments. Built specifically for developers dealing with "Iran-Access" networks, heavy filtering, and international sanctions (403 errors). 
