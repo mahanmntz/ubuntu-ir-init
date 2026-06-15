@@ -124,12 +124,27 @@ menu_initial_setup() {
 # =========================================================
 install_node_react() {
     echo -e "\n--- Installing Node.js, npm, and React CLI ---"
+    echo "Installing base Node.js from Ubuntu repos..."
     apt install -y nodejs npm
     check_status
 
     echo "Setting up NPM Mirror to bypass restrictions..."
     npm config set registry https://registry.npmjs.ir/ 2>/dev/null || npm config set registry https://registry.npmjs.org/
     
+    echo "Installing Node Version Manager 'n'..."
+    npm install -g n
+    check_status
+
+    echo -e "\n--- Select Node.js Version ---"
+    read -p "Enter desired Node.js version (e.g., 18, 20, 22, lts) [Default: 22]: " node_version
+    node_version=${node_version:-22}
+
+    echo "Fetching Node.js v$node_version..."
+    # Using Aliyun mirror to bypass Nodejs.org 403 blocks in Iran
+    N_NODE_MIRROR=https://mirrors.aliyun.com/nodejs-release/ n $node_version
+    hash -r
+    check_status
+
     echo "Installing React CLI (create-react-app) globally..."
     npm install -g create-react-app
     check_status
@@ -150,7 +165,7 @@ menu_dev_tools() {
         echo -e "\n======================================"
         echo "         DEVELOPER TOOLS MENU         "
         echo "======================================"
-        echo "1) Node.js + npm + React CLI"
+        echo "1) Node.js (Select Version) + npm + React CLI"
         echo "2) Go (Golang)"
         echo "3) Install All Dev Tools"
         echo "4) Back to Main Menu"
@@ -192,7 +207,8 @@ install_mongodb() {
     check_status
     
     echo "MongoDB -> Username: $mongo_user | Password: $mongo_pass" >> $CREDENTIALS_FILE
-    echo "Credentials securely saved to $CREDENTIALS_FILE"
+    echo "MongoDB URI -> mongodb://$mongo_user:$mongo_pass@127.0.0.1:27017/?authSource=admin" >> $CREDENTIALS_FILE
+    echo "Credentials and URI securely saved to $CREDENTIALS_FILE"
 }
 
 install_redis() {
@@ -215,6 +231,7 @@ install_redis() {
           redis:latest redis-server --requirepass "$redis_pass"
         
         echo "Redis -> Password: $redis_pass" >> $CREDENTIALS_FILE
+        echo "Redis URI -> redis://:$redis_pass@127.0.0.1:6379" >> $CREDENTIALS_FILE
         echo "Credentials securely saved to $CREDENTIALS_FILE"
     else
         docker run -d \
