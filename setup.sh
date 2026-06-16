@@ -8,23 +8,24 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-CREDENTIALS_FILE="/root/db_credentials.txt"
+INFO_FILE="/root/server_info.txt"
+source /etc/os-release
+CODENAME=$VERSION_CODENAME
 
 # =========================================================
 # Error Handling Helper
 # =========================================================
 check_status() {
     if [ $? -ne 0 ]; then
-        echo "ERROR: The last command failed to execute."
-        echo "HINT: Since you are operating from Iran, this is likely due to:"
+        echo "❌ ERROR: The last command failed to execute."
+        echo "💡 HINT: Since you are operating from Iran, this is likely due to:"
         echo "   - Sanctions (403 Forbidden)"
         echo "   - Network filtering / Iran-Access only restrictions"
-        echo "   - DNS poisoning"
-        echo "Try running the task with Proxychains, or ensure your local mirrors are working."
+        echo "👉 Try using Proxychains or check if the selected mirror is down."
         echo "---------------------------------------------------"
         read -p "Press Enter to continue..."
     else
-        echo "Success!"
+        echo "✅ Success!"
     fi
 }
 
@@ -33,37 +34,103 @@ check_status() {
 # =========================================================
 setup_mirrors() {
     echo -e "\n--- Ubuntu Repository Mirrors (Iran) ---"
-    echo "1) IranServer (repo.iranserver.com)"
-    echo "2) ArvanCloud (mirror.arvancloud.ir)"
-    read -p "Select a mirror [1-2] (Enter to skip): " mirror_choice
+    echo "1) ArvanCloud (mirror.arvancloud.ir) - Recommended"
+    echo "2) IranServer (repo.iranserver.com)"
+    echo "3) Radin (mirror.radin.ir)"
+    read -p "Select a mirror [1-3] (Enter to skip): " mirror_choice
 
     local mirror_url=""
     case $mirror_choice in
-        1) mirror_url="repo.iranserver.com/ubuntu" ;;
-        2) mirror_url="mirror.arvancloud.ir/ubuntu" ;;
+        1) mirror_url="mirror.arvancloud.ir/ubuntu" ;;
+        2) mirror_url="repo.iranserver.com/ubuntu" ;;
+        3) mirror_url="mirror.radin.ir/ubuntu" ;;
         *) echo "Skipping mirror setup."; return ;;
     esac
 
-    echo "Cleaning up old backup files to prevent APT warnings..."
+    echo "Cleaning up old backup files..."
     rm -f /etc/apt/sources.list.d/*.backup
     rm -f /etc/apt/sources.list.d/*.save
 
-    echo "Applying new mirror: $mirror_url"
+    echo "Generating fresh mirror configurations for Ubuntu $VERSION_ID ($CODENAME)..."
 
-    if [ -f /etc/apt/sources.list ]; then
-        cp /etc/apt/sources.list /root/sources.list.backup
-        sed -i -E "s|https?://([a-zA-Z0-9-]+\.)?archive\.ubuntu\.com/ubuntu/?|http://$mirror_url/|g" /etc/apt/sources.list
-        sed -i -E "s|https?://security\.ubuntu\.com/ubuntu/?|http://$mirror_url/|g" /etc/apt/sources.list
-    fi
+    if [[ "$VERSION_ID" == "24.04" ]]; then
+        cat <<EOF > /etc/apt/sources.list.d/ubuntu.sources
+Types: deb
+URIs: http://$mirror_url
+Suites: $CODENAME $CODENAME-updates $CODENAME-backports
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
-    if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-        cp /etc/apt/sources.list.d/ubuntu.sources /root/ubuntu.sources.backup
-        sed -i -E "s|URIs: .*ubuntu.com/ubuntu/?|URIs: http://$mirror_url/|g" /etc/apt/sources.list.d/ubuntu.sources
+Types: deb
+URIs: http://$mirror_url
+Suites: $CODENAME-security
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+EOF
+        > /etc/apt/sources.list
+    else
+        cat <<EOF > /etc/apt/sources.list
+deb http://$mirror_url $CODENAME main restricted universe multiverse
+deb http://$mirror_url $CODENAME-updates main restricted universe multiverse
+deb http://$mirror_url $CODENAME-backports main restricted universe multiverse
+deb http://$mirror_url $CODENAME-security main restricted universe multiverse
+EOF
     fi
     
     echo "Updating package lists..."
+    systemctl daemon-reload 2>/dev/null
     apt update -y
     check_status
+}
+
+restore_mirrors() {
+    echo -e "\n--- Restoring Original Ubuntu Mirrors ---"
+    local mirror_url="archive.ubuntu.com/ubuntu"
+    
+    if [[ "$VERSION_ID" == "24.04" ]]; then
+        cat <<EOF > /etc/apt/sources.list.d/ubuntu.sources
+Types: deb
+URIs: http://$mirror_url
+Suites: $CODENAME $CODENAME-updates $CODENAME-backports
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+Types: deb
+URIs: http://security.ubuntu.com/ubuntu
+Suites: $CODENAME-security
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+EOF
+        > /etc/apt/sources.list
+    else
+        cat <<EOF > /etc/apt/sources.list
+deb http://$mirror_url $CODENAME main restricted universe multiverse
+deb http://$mirror_url $CODENAME-updates main restricted universe multiverse
+deb http://$mirror_url $CODENAME-backports main restricted universe multiverse
+deb http://security.ubuntu.com/ubuntu $CODENAME-security main restricted universe multiverse
+EOF
+    fi
+    echo "✅ Original mirrors restored."
+    apt update -y
+    check_status
+}
+
+check_network_mirrors() {
+    echo -e "\n--- Network & Mirror Diagnostic ---"
+    echo -n "1. Checking Internet Connectivity (Ping 8.8.8.8)... "
+    if ping -c 2 -W 2 8.8.8.8 &> /dev/null; then echo "✅ OK"; else echo "❌ FAILED"; fi
+
+    echo -n "2. Checking DNS Resolution (google.com)... "
+    if ping -c 1 -W 2 google.com &> /dev/null; then echo "✅ OK"; else echo "❌ FAILED"; fi
+
+    echo "3. Testing APT Mirrors..."
+    apt update
+    if [ $? -eq 0 ]; then
+        echo "✅ APT Mirrors are working fine!"
+    else
+        echo "❌ APT update failed. (Your current mirror might be down, try changing it)"
+    fi
+    read -p "Press Enter to continue..."
 }
 
 setup_docker() {
@@ -71,7 +138,7 @@ setup_docker() {
     apt install -y docker.io docker-compose
     systemctl enable --now docker
 
-    echo "Configuring IranServer Docker Registry Mirror..."
+    echo "Configuring Docker Registry Mirror..."
     mkdir -p /etc/docker
     cat <<EOF > /etc/docker/daemon.json
 {
@@ -97,23 +164,36 @@ setup_proxychains() {
     check_status
 }
 
+install_nginx_basic() {
+    echo -e "\n--- Installing Base Nginx ---"
+    apt install -y nginx
+    systemctl enable --now nginx
+    check_status
+}
+
 menu_initial_setup() {
     while true; do
         echo -e "\n======================================"
         echo "         INITIAL SETUP MENU           "
         echo "======================================"
-        echo "1) Setup Iranian Mirrors"
-        echo "2) Install Docker (with Mirrors)"
-        echo "3) Configure Proxychains"
-        echo "4) Run All Initial Setups"
-        echo "5) Back to Main Menu"
+        echo "1) Setup Iranian Mirrors (Robust & Clean)"
+        echo "2) Restore Original Ubuntu Mirrors"
+        echo "3) Check Network & Mirrors (Diagnostics)"
+        echo "4) Install Docker (with Mirrors)"
+        echo "5) Configure Proxychains"
+        echo "6) Install Base Nginx"
+        echo "7) Run Smart Initial Setup (Mirrors, Docker, Proxy, Nginx)"
+        echo "8) Back to Main Menu"
         read -p "Select option: " opt
         case $opt in
             1) setup_mirrors ;;
-            2) setup_docker ;;
-            3) setup_proxychains ;;
-            4) setup_mirrors; setup_docker; setup_proxychains ;;
-            5) break ;;
+            2) restore_mirrors ;;
+            3) check_network_mirrors ;;
+            4) setup_docker ;;
+            5) setup_proxychains ;;
+            6) install_nginx_basic ;;
+            7) setup_mirrors; setup_docker; setup_proxychains; install_nginx_basic ;;
+            8) break ;;
             *) echo "Invalid option." ;;
         esac
     done
@@ -124,28 +204,25 @@ menu_initial_setup() {
 # =========================================================
 install_node_react() {
     echo -e "\n--- Installing Node.js, npm, and React CLI ---"
-    echo "Installing base Node.js from Ubuntu repos..."
     apt install -y nodejs npm
     check_status
 
-    echo "Setting up NPM Mirror to bypass restrictions..."
+    echo "Setting up NPM Mirror..."
     npm config set registry https://registry.npmjs.ir/ 2>/dev/null || npm config set registry https://registry.npmjs.org/
     
     echo "Installing Node Version Manager 'n'..."
     npm install -g n
     check_status
 
-    echo -e "\n--- Select Node.js Version ---"
-    read -p "Enter desired Node.js version (e.g., 18, 20, 22, lts) [Default: 22]: " node_version
+    read -p "Enter desired Node.js version [Default: 22]: " node_version
     node_version=${node_version:-22}
 
     echo "Fetching Node.js v$node_version..."
-    # Using Aliyun mirror to bypass Nodejs.org 403 blocks in Iran
     N_NODE_MIRROR=https://mirrors.aliyun.com/nodejs-release/ n $node_version
     hash -r
     check_status
 
-    echo "Installing React CLI (create-react-app) globally..."
+    echo "Installing React CLI globally..."
     npm install -g create-react-app
     check_status
 }
@@ -155,7 +232,6 @@ install_golang() {
     apt install -y golang
     check_status
 
-    echo "Setting GOPROXY to bypass Iran restrictions for Go modules..."
     go env -w GOPROXY=https://goproxy.io,direct
     echo "GOPROXY configured successfully."
 }
@@ -185,60 +261,36 @@ menu_dev_tools() {
 # =========================================================
 install_mongodb() {
     echo -e "\n--- Installing MongoDB (via Docker) ---"
-    echo "Deploying MongoDB securely via local Docker registry mirror..."
-    
-    if ! command -v docker &> /dev/null; then
-        echo "Docker is required for MongoDB installation. Installing Docker first..."
-        setup_docker
-    fi
+    if ! command -v docker &> /dev/null; then setup_docker; fi
 
     read -p "Enter a new MongoDB Admin Username: " mongo_user
     read -s -p "Enter Password for $mongo_user: " mongo_pass
     echo ""
     
-    docker run -d \
-      --name mongodb \
-      --restart unless-stopped \
-      -p 27017:27017 \
+    docker run -d --name mongodb --restart unless-stopped -p 27017:27017 \
       -e MONGO_INITDB_ROOT_USERNAME=$mongo_user \
-      -e MONGO_INITDB_ROOT_PASSWORD=$mongo_pass \
-      mongo:latest
-      
+      -e MONGO_INITDB_ROOT_PASSWORD=$mongo_pass mongo:latest
     check_status
     
-    echo "MongoDB -> Username: $mongo_user | Password: $mongo_pass" >> $CREDENTIALS_FILE
-    echo "MongoDB URI -> mongodb://$mongo_user:$mongo_pass@127.0.0.1:27017/?authSource=admin" >> $CREDENTIALS_FILE
-    echo "Credentials and URI securely saved to $CREDENTIALS_FILE"
+    echo "MongoDB -> Username: $mongo_user | Password: $mongo_pass" >> $INFO_FILE
+    echo "MongoDB URI -> mongodb://$mongo_user:$mongo_pass@127.0.0.1:27017/?authSource=admin" >> $INFO_FILE
 }
 
 install_redis() {
     echo -e "\n--- Installing Redis (via Docker) ---"
-    echo "Deploying Redis securely via local Docker registry mirror..."
-    
-    if ! command -v docker &> /dev/null; then
-        echo "Docker is required for Redis installation. Installing Docker first..."
-        setup_docker
-    fi
+    if ! command -v docker &> /dev/null; then setup_docker; fi
     
     read -p "Do you want to set a Redis password? (y/n): " set_pass
     if [[ "$set_pass" == "y" || "$set_pass" == "Y" ]]; then
         read -s -p "Enter Redis Password: " redis_pass
         echo ""
-        docker run -d \
-          --name redis \
-          --restart unless-stopped \
-          -p 6379:6379 \
+        docker run -d --name redis --restart unless-stopped -p 6379:6379 \
           redis:latest redis-server --requirepass "$redis_pass"
         
-        echo "Redis -> Password: $redis_pass" >> $CREDENTIALS_FILE
-        echo "Redis URI -> redis://:$redis_pass@127.0.0.1:6379" >> $CREDENTIALS_FILE
-        echo "Credentials securely saved to $CREDENTIALS_FILE"
+        echo "Redis -> Password: $redis_pass" >> $INFO_FILE
+        echo "Redis URI -> redis://:$redis_pass@127.0.0.1:6379" >> $INFO_FILE
     else
-        docker run -d \
-          --name redis \
-          --restart unless-stopped \
-          -p 6379:6379 \
-          redis:latest
+        docker run -d --name redis --restart unless-stopped -p 6379:6379 redis:latest
     fi
     check_status
 }
@@ -270,7 +322,7 @@ while true; do
     echo -e "\n======================================"
     echo "    IRAN SERVER BOOTSTRAP - MAIN MENU "
     echo "======================================"
-    echo "1) Initial Server Setup (Mirrors, Proxy, Docker)"
+    echo "1) Initial Server Setup (Mirrors, Proxy, Docker, Nginx)"
     echo "2) Developer Tools (Go, Node, React)"
     echo "3) Databases (MongoDB, Redis)"
     echo "4) Run EVERYTHING (Full Provisioning)"
@@ -283,9 +335,8 @@ while true; do
         2) menu_dev_tools ;;
         3) menu_databases ;;
         4) 
-            setup_mirrors; setup_docker; setup_proxychains
-            install_node_react; install_golang
-            install_mongodb; install_redis
+            setup_mirrors; setup_docker; setup_proxychains; install_nginx_basic
+            install_node_react; install_golang; install_mongodb; install_redis
             echo "ALL TASKS COMPLETED!"
             ;;
         5) echo "Exiting..."; exit 0 ;;
