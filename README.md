@@ -7,22 +7,22 @@ This tool ensures that dependencies, databases, and developer environments are p
 ## How It Works (Core Features)
 
 ### 1. Network & Bypass Capabilities
-* **Local APT Mirrors:** The script replaces the default Ubuntu archive URLs in `/etc/apt/sources.list` with high-speed local mirrors (IranServer, ArvanCloud). This allows `apt install` commands to work without requiring international internet access.
-* **Proxychains Integration:** Installs `proxychains4` and modifies its configuration file (`/etc/proxychains4.conf`) dynamically based on user terminal input to tunnel specific commands through a provided proxy (e.g., SOCKS5).
-* **Docker Registry Injection:** Installs Docker via the local APT mirrors. To bypass Docker Hub restrictions (403 errors), it creates or updates `/etc/docker/daemon.json` to automatically inject unblocked local registry mirrors (like docker.iranserver.com).
+* **Local APT Mirrors:** The script replaces the default Ubuntu archive URLs in `/etc/apt/sources.list` and `ubuntu.sources` with high-speed local mirrors. It also cleans up invalid `.backup` files to prevent APT warnings.
+* **Proxychains Integration:** Installs `proxychains4` and modifies its configuration file dynamically based on user terminal input to tunnel specific commands.
+* **Docker Registry Injection:** Installs Docker via the local APT mirrors. To bypass Docker Hub restrictions, it updates `/etc/docker/daemon.json` to inject unblocked local registry mirrors.
 
 ### 2. Developer Tools Auto-Setup
 Instead of fetching from official, restricted sources, the script safely installs tools using local networks:
-* **Node.js & NPM:** Installs Node.js from the local APT mirrors. It then runs `npm config set registry` to point to a functional Iranian mirror (`registry.npmjs.ir`), allowing future `npm install` commands to succeed.
+* **Node.js & NPM:** Installs a base Node.js from local APT mirrors, sets the NPM registry to an Iranian mirror, installs the `n` package manager, and prompts the user to select their desired Node version (defaulting to v22). It fetches the binary using an unblocked mirror (Aliyun).
 * **React CLI:** Installs `create-react-app` globally using the configured local NPM registry.
-* **Go (Golang):** Installs Go via the local APT mirrors. It then executes `go env -w GOPROXY=https://goproxy.io,direct` to configure the Go proxy, ensuring module downloads bypass regional restrictions.
+* **Go (Golang):** Installs Go via the local APT mirrors. It then configures the Go proxy (`GOPROXY`) to bypass module download restrictions.
 
 ### 3. Database Provisioning
-* **MongoDB & Redis:** Both databases are installed directly from the standard Ubuntu repositories routed through the local APT mirrors configured in step 1. 
-* **Credential Management:** Upon installation, the script configures the services and prompts for authentication details. These inputted passwords are automatically and securely appended to `/root/db_credentials.txt` for safe keeping.
+* **MongoDB & Redis (via Docker):** To bypass complex APT dependencies and missing universe repository issues, both databases are deployed as Docker containers. They use the injected local registry mirrors, ensuring fast and reliable downloads.
+* **Credential Management:** Upon installation, the script configures the databases and prompts for authentication details. Usernames, Passwords, and direct connection URIs are automatically and securely appended to `/root/db_credentials.txt`.
 
 ## Prerequisites
-* **OS:** Ubuntu 20.04 / 22.04 LTS
+* **OS:** Ubuntu 20.04 / 22.04 / 24.04 LTS
 * **Access:** Root privileges required (Run with sudo or as root user)
 
 ## Usage Guide
@@ -33,7 +33,7 @@ Depending on your server's initial network conditions, choose one of the methods
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/mahanmntz/ubuntu-ir-init.git
+   git clone [https://github.com/mahanmntz/ubuntu-ir-init.git](https://github.com/mahanmntz/ubuntu-ir-init.git)
    cd ubuntu-ir-init
 
 ```
@@ -55,8 +55,6 @@ sudo ./setup.sh
 
 ### Method 2: Manual Setup (If GitHub is blocked)
 
-If your server cannot access GitHub due to filtering, you can easily create the file manually:
-
 1. Create a new file using nano:
 ```bash
 nano setup.sh
@@ -64,7 +62,7 @@ nano setup.sh
 ```
 
 
-2. Copy the entire contents of the `setup.sh` script from your local machine and paste it into the terminal.
+2. Copy the entire contents of the `setup.sh` script and paste it into the terminal.
 3. Save and exit (Press `Ctrl + O`, `Enter`, then `Ctrl + X`).
 4. Make the script executable and run it:
 ```bash
@@ -77,18 +75,19 @@ sudo ./setup.sh
 
 ## Installation Test Commands
 
-After running the script, you can verify the successful installation and configuration of the tools using the following commands:
+After running the script, verify the successful setup using these commands:
 
 ### 1. Initial Setup (Mirrors, Proxy, Docker)
 
-* **Verify APT Mirrors:** Check if the sources list is using the selected Iranian mirror.
+* **Verify APT Mirrors:**
 ```bash
 cat /etc/apt/sources.list
+cat /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null
 
 ```
 
 
-* **Verify Docker & Mirrors:** Check the Docker version and ensure the registry mirrors are applied.
+* **Verify Docker & Mirrors:**
 ```bash
 docker --version
 docker info | grep "Registry Mirrors" -A 2
@@ -96,7 +95,7 @@ docker info | grep "Registry Mirrors" -A 2
 ```
 
 
-* **Verify Proxychains:** Test internet connectivity through your configured proxy.
+* **Verify Proxychains:**
 ```bash
 proxychains4 curl ifconfig.me
 
@@ -106,7 +105,7 @@ proxychains4 curl ifconfig.me
 
 ### 2. Developer Tools
 
-* **Verify Node.js & NPM:** Check their versions and verify the NPM registry is set to the Iranian mirror.
+* **Verify Node.js & NPM:**
 ```bash
 node -v
 npm -v
@@ -115,14 +114,7 @@ npm config get registry
 ```
 
 
-* **Verify React CLI:**
-```bash
-create-react-app --version
-
-```
-
-
-* **Verify Go (Golang):** Check the Go version and verify the GOPROXY configuration.
+* **Verify Go (Golang):**
 ```bash
 go version
 go env GOPROXY
@@ -133,18 +125,32 @@ go env GOPROXY
 
 ### 3. Databases
 
-* **Verify MongoDB:** Check the service status and version.
+* **Verify MongoDB & Redis Docker Containers:**
 ```bash
-systemctl status mongodb
-mongod --version
+docker ps
 
 ```
 
 
-* **Verify Redis:** Check the service status and ping the server (it should reply with PONG if no password is set, or require authentication if you set one).
+* **Check Databases Inside MongoDB:**
+To see if your MongoDB was initialized correctly and check for existing databases, execute into the container using the mongosh shell:
 ```bash
-systemctl status redis-server
-redis-cli ping
+docker exec -it mongodb mongosh -u YOUR_USERNAME -p YOUR_PASSWORD --authenticationDatabase admin
+
+```
+
+
+Once inside the shell (`test>`), run the following command to list all databases:
+```javascript
+show dbs;
+
+```
+
+
+*(By default, you should see `admin`, `config`, and `local`. If it's a fresh installation, there will be no other databases).*
+* **Test Redis Connection:**
+```bash
+docker exec -it redis redis-cli ping
 
 ```
 
@@ -152,7 +158,7 @@ redis-cli ping
 
 ## Security Note
 
-If you use the database configuration tools, your passwords will be saved in plain text at `/root/db_credentials.txt`. Because this file is located in the root directory, it is protected from standard users, but you should delete it or move it to a secure password manager once your setup is complete.
+If you use the database configuration tools, your passwords and connection URIs will be saved in plain text at `/root/db_credentials.txt`. Because this file is located in the root directory, it is protected from standard users, but you should delete it or move it to a secure password manager once your setup is complete.
 
 ## License
 
